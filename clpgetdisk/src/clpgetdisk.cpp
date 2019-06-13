@@ -15,16 +15,24 @@ main(
 {
 	LP_VOLUME_LIST lpVol;
 	LP_HBA_LIST lpHba;
+	BOOL bRet;
 	CHAR szLine[1024], szVolSize[1024], szVolumeMountPoint[MAX_PATH];
 	DWORD dwMaxPortNum, dwMaxDiskNum, dwPort, dwDisk, dwSize, dwRet;
 	FILE* fp;
 	char szSystemDrive[MAX_PATH + 1];
 	char drive[2];
+	char deviceid[256];
+	char hostname[256];
+	char path[1024];
+	DWORD hostnamelen = sizeof(hostname);
 	int i;
 	int nHba;
 	int nVol;
 	int nPort = -1;
 	int size;
+
+	/* initialize */
+	memset(deviceid, '\0', sizeof(deviceid));
 
 	if (argc <= 1)
 	{
@@ -52,9 +60,10 @@ main(
 	if (GetSystemDirectory(szSystemDrive, MAX_PATH + 1) == 0) {
 		return FALSE;
 	}
-	printf("system di: %s\n", szSystemDrive);
 	szSystemDrive[2] = '\0';
-	printf("system drive: %s\n", szSystemDrive);
+
+	bRet = GetComputerNameEx(ComputerNameDnsHostname, hostname, &hostnamelen);
+
 
 	/*  */
 	/* ワークバッファサイズを取得(HBA一覧) */
@@ -95,53 +104,60 @@ main(
 		return FALSE;
 	}
 
-
 	strcpy(drive, argv[2]);
-	printf("drive: %s\n", drive);
 
-	printf("%d\n", lpVol->volumelistnum);
 	nVol = lpVol->volumelistnum;
 	for (i = 0; i < nVol; i++)
 	{
-		printf("i               : %d\n", i);
-		printf("volumeguid      : %s\n", lpVol->volumelist[i].volumeguid);
-		printf("volumemountpoint: %s\n", lpVol->volumelist[i].volumemountpoint);
-		printf("port            : %d\n", lpVol->volumelist[i].volumeinfo.portnumber);
 		if (!strcmp(drive, lpVol->volumelist[i].volumemountpoint))
 		{
 			nPort = lpVol->volumelist[i].volumeinfo.portnumber;
-
 			if (!strcmp(argv[1], "guid"))
 			{
-				fp = fopen(".\\guid.txt", "w+");
-				fprintf(fp, "volumeguid=%s\n", lpVol->volumelist[i].volumeguid);
+#if 0
+				sprintf(path, ".\\%s_guid.csv", hostname);
+				fp = fopen(path, "w+");
+				fprintf(fp, "volumeguid\n");
+				fprintf(fp, "%s\n", lpVol->volumelist[i].volumeguid);
 				fclose(fp);
+#endif
+				printf("volumeguid,drive\n");
+				printf("%s,%s\n", lpVol->volumelist[i].volumeguid, drive);
+				return 0;
 			}
 		}
 	}
 
 	nHba = (int)lpHba->hbalistnum;
-	printf("%d\n", nHba);
 	for (i = 0; i < nHba; i++)
 	{
+#if 0
 		printf("i         : %d\n", i);
 		printf("port      : %d\n", lpHba->hbalist[i].portnumber);
 		printf("hbaname   : %s\n", lpHba->hbalist[i].hbaname);
 		printf("deviceid  : %s\n", lpHba->hbalist[i].deviceid);
 		printf("instanceid: %s\n", lpHba->hbalist[i].instanceid);
+#endif
 		if (!strcmp(argv[1], "hba"))
 		{
 			if (nPort == lpHba->hbalist[i].portnumber)
 			{
-				fp = fopen(".\\hba.txt", "w+");
-				fprintf(fp, "portnumber=%d\n", lpHba->hbalist[i].portnumber);
-				fprintf(fp, "deviceid=%s\n", lpHba->hbalist[i].deviceid);
-				fprintf(fp, "instanceid=%s\n", lpHba->hbalist[i].instanceid);
-				fclose(fp);
+				strcpy(deviceid, lpHba->hbalist[i].deviceid);
 			}
 		}
 	}
-	
+	printf("portnumber,");
+	printf("deviceid,");
+	printf("instanceid\n");
+	for (i = 0; i < nHba; i++)
+	{
+		if (!strcmp(deviceid, lpHba->hbalist[i].deviceid))
+		{
+			printf("%d,", lpHba->hbalist[i].portnumber);
+			printf("%s,", lpHba->hbalist[i].deviceid);
+			printf("%s\n", lpHba->hbalist[i].instanceid);
+		}
+	}
 
 	return 0;
 }
@@ -227,8 +243,6 @@ QueryHbaList
 	// HBAリスト数を格納
 	buffer->hbalistnum = nHbaNum;
 
-	printf("nHBANum: %d\n", nHbaNum);
-
 	// LISCAL_CTRLをオープン
 	hLiscalCtrl = CreateFile(
 //		LISCAL_CTRL_DOSDEVICE_NAME,
@@ -265,12 +279,10 @@ QueryHbaList
 		dwRet = GetHbaName(nCnt, HbaName);
 		if (dwRet == 0)
 		{
-			printf("GetHbaName done.\n");
 			flag = 1;
 		}
 		else
 		{
-			printf("GetHbaName failed (deRet: %d).\n", dwRet);
 			flag = 0;
 		}
 
@@ -294,14 +306,12 @@ QueryHbaList
 			{
 				// デバイス情報の取得に失敗
 				//## 失敗しても処理は継続する ##
-				printf("DeviceIoCtontrol(LISCAL_GET_HBA_ID) failed.\n");
 			}
 
 			if (HbaInfo.error != 0)
 			{
 				// デバイス情報の取得に失敗
 				//## 失敗しても処理は継続する ##
-				printf("HbaInfo.error is NOT zero.\n");
 			}
 		}
 
@@ -310,11 +320,6 @@ QueryHbaList
 		strncpy(buffer->hbalist[nHbaNum].hbaname, HbaName, HBANAME_LEN);
 		strncpy(buffer->hbalist[nHbaNum].deviceid, HbaInfo.device_id, HBADEVICEID_LEN);
 		strncpy(buffer->hbalist[nHbaNum].instanceid, HbaInfo.instance_id, HBAINSTANSID_LEN);
-
-		//###DEBUG###
-		printf("###DEBUG### %s\n", buffer->hbalist[nHbaNum].hbaname);
-		printf("###DEBUG### %s\n", buffer->hbalist[nHbaNum].deviceid);
-		printf("###DEBUG### %s\n", buffer->hbalist[nHbaNum].instanceid);
 
 		nHbaNum++;
 	}
@@ -364,8 +369,7 @@ GetHbaName(
 	nRet = RegOpenKeyEx(HKEY_LOCAL_MACHINE, RegPath, 0, KEY_ALL_ACCESS, &hRestoreKey);
 	if (nRet != ERROR_SUCCESS)
 	{
-		printf("RegPath: %s\n", RegPath);
-		printf("RegOpenKeyEx() failed (port: %d, nRet: %d). \n", PortNum, nRet);
+		/* TODO: error handling */
 	}
 	nSize = HBANAME_LEN;
 	nRet = RegQueryValueEx(hRestoreKey, "Driver", NULL, &dwType, DriverName, &nSize);
@@ -374,7 +378,6 @@ GetHbaName(
 		dwReturn = DISK_ERROR_OTHER;
 		goto exit;
 	}
-	printf("DriverName: %s\n",DriverName);
 
 	// レジストリをクローズ
 	if (hRestoreKey != NULL)
@@ -385,7 +388,6 @@ GetHbaName(
 
 	// レジストリパスの作成
 	sprintf(RegPath, "SYSTEM\\CurrentControlSet\\Services\\%s\\Enum", DriverName);
-	printf("RegPath: %s\n", RegPath);
 
 	// レジストリのオープン
 	nRet = RegOpenKeyEx(HKEY_LOCAL_MACHINE, RegPath, 0, KEY_ALL_ACCESS, &hRestoreKey);
@@ -490,10 +492,8 @@ QueryVolumeList(
 	{
 		dwReturn = DISK_ERROR_OTHER;
 		dwStatus = GetLastError();
-		printf("FindFirstVolume() <%d> volumename : %s\n", dwStatus, VolumeName);
 		goto fin;
 	}
-	printf("FindFirstVolume() <-> volumename : %s\n", VolumeName);
 
 	// ボリュームの数を取得
 	nVolNum = 0;
@@ -517,11 +517,8 @@ QueryVolumeList(
 			nRet = FindNextVolume(hVolume, VolumeName, PATH_LEN);
 			if (nRet == 0)
 			{
-				printf("FindNextVolume() <%d> volumename : %s\n", nRet, VolumeName);
-				printf("no more volume.\n");
 				break;
 			}
-			printf("FindNextVolume() <%d> volumename : %s\n", nRet, VolumeName);
 			continue;
 		}
 
@@ -543,7 +540,7 @@ QueryVolumeList(
 
 		bSts = IsRemovableVolume(TempBuff.volumemountpoint);
 		if (bSts == TRUE) {
-			printf("RemovalMedia : %s >skip\n");
+			/* RemovalMedia (do nothing) */
 		}
 		else {
 			// サイズを確認し、データを格納
@@ -561,11 +558,8 @@ QueryVolumeList(
 		nRet = FindNextVolume(hVolume, VolumeName, PATH_LEN);
 		if (nRet == 0)
 		{
-			printf("FindNextVolume() <%d> volumename : %s\n", nRet, VolumeName);
-			printf("no more volume.\n");
 			break;
 		}
-		printf("FindNextVolume() <%d> volumename : %s\n", nRet, VolumeName);
 	}
 
 	// サイズの取得
@@ -574,7 +568,7 @@ QueryVolumeList(
 	// NULLチェック
 	if (buffer == (VOLUME_LIST*)NULL)
 	{   // サイズを格納するのみ
-		printf("buffer is NULL. neccesary size : %d\n", nSize);
+//		printf("buffer is NULL. neccesary size : %d\n", nSize);
 
 		goto fin;
 	}
@@ -582,7 +576,7 @@ QueryVolumeList(
 	if (*size < nSize)
 	{   // サイズを格納するのみ
 		dwReturn = DISK_ERROR_BUFFER;
-		printf("size is not enough. size : %d, neccesary size : %d\n", *size, nSize);
+//		printf("size is not enough. size : %d, neccesary size : %d\n", *size, nSize);
 
 		goto fin;
 	}
@@ -644,8 +638,6 @@ GetVolumeInfo(
 	if (hVolume == INVALID_HANDLE_VALUE)
 	{
 		dwReturn = DISK_ERROR_OTHER;
-		printf("CreateFile() <%d> filename : %s\n", GetLastError(), VolumeName);
-
 		goto fin;
 	}
 
@@ -662,13 +654,11 @@ GetVolumeInfo(
 	if (!bRet)
 	{
 		dwReturn = DISK_ERROR_OTHER;
-		printf("DeviceIoControl(IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS) <%d> size : %d, volumeguid : %s\n", GetLastError(), dwDatalen, VolumeGuid);
-
 		goto fin;
 	}
 	else
 	{
-		printf("DeviceIoControl(IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS) <-> size : %d, volumeguid : %s\n", dwDatalen, VolumeGuid);
+		/* TODO: log */
 	}
 
 	// ボリューム情報を取得
@@ -684,13 +674,11 @@ GetVolumeInfo(
 	if (!bRet)
 	{
 		dwReturn = DISK_ERROR_OTHER;
-		printf(	"DeviceIoControl(IOCTL_DISK_GET_PARTITION_INFO_EX) <%d> size : %d, volumeguid : %s\n", GetLastError(), dwDatalen, VolumeGuid); //fix 2007/11/15
-
 		goto fin;
 	}
 	else
 	{
-		printf("DeviceIoControl(IOCTL_DISK_GET_PARTITION_INFO_EX) <-> size : %d, volumeguid : %s\n", dwDatalen, VolumeGuid); //fix 2007/11/15
+		/* TODO: log */
 	}
 
 	// ディスクのLENGTH情報を取得
@@ -719,12 +707,9 @@ GetVolumeInfo(
 		);
 		if (hLiscalCtrl == INVALID_HANDLE_VALUE)
 		{   //## 失敗しても処理は継続する ##
-			printf("CreateFile(hLiscalCtrl) <%d> filename : %s\n", GetLastError(), "\\\\.\\LISCAL_CTRL");
 		}
 		else
 		{
-			printf("CreateFile(hLiscalCtrl) <-> filename : %s\n", "\\\\.\\LISCAL_CTRL");
-
 			// パラメータ設定
 			OnlineParam.flag = PG_PORT_IO;
 			strncpy(OnlineParam.dp_vmp, VolumeGuid, GUID_LEN);
@@ -744,12 +729,10 @@ GetVolumeInfo(
 			if (!bStatus)
 			{
 				// 口開けに失敗
-				printf("DeviceIoControl(LISCAL_OPEN_DRV_PORT) <%d> volumeguid : %s\n", GetLastError(), VolumeGuid);
 			}
 			else if (OnlineParam.error != 0)
 			{
 				// 口開けに失敗
-				printf("fail to online. <%d> volumeguid : %s\n", OnlineParam.error, VolumeGuid);
 			}
 			else
 			{
@@ -765,7 +748,7 @@ GetVolumeInfo(
 				);
 				if (!bRet)
 				{
-					printf("DeviceIoControl(IOCTL_DISK_GET_LENGTH_INFO) <%d> size : %d, volumeguid : %s\n", GetLastError(), dwDatalen, VolumeGuid);
+					/* TODO: log */
 				}
 
 				CloseHandle(hLiscalCtrl);
@@ -775,7 +758,7 @@ GetVolumeInfo(
 	}
 	else
 	{
-		printf("DeviceIoControl(IOCTL_DISK_GET_LENGTH_INFO) <-> size : %d, VolumeGuid : %s\n", dwDatalen, VolumeGuid);
+		/* TODO: log */
 	}
 
 	// 取得した情報を格納
@@ -830,13 +813,11 @@ GetDiskInfo(
 	if (hDevice == INVALID_HANDLE_VALUE)
 	{
 		dwReturn = DISK_ERROR_OTHER;
-		printf("CreateFile() <%d> filename : %s\n", GetLastError(), DeviceName);
-
 		goto fin;
 	}
 	else
 	{
-		printf("CreateFile() <-> filename : %s\n", DeviceName);
+		/* TODO: log */
 	}
 
 	// デバイス情報を取得
@@ -852,13 +833,11 @@ GetDiskInfo(
 	if (!bRet)
 	{
 		dwReturn = DISK_ERROR_OTHER;
-		printf("DeviceIoControl(IOCTL_SCSI_GET_ADDRESS) <%d> size : %d\n", GetLastError(), dwDatalen);
-
 		goto fin;
 	}
 	else
 	{
-		printf("DeviceIoControl(IOCTL_SCSI_GET_ADDRESS) <-> size : %d\n", dwDatalen);
+		/* TODO: log */
 	}
 
 	// デバイス情報を格納
@@ -921,13 +900,11 @@ GetDiskName(
 	if (hScsi == INVALID_HANDLE_VALUE)
 	{
 		dwReturn = DISK_ERROR_OTHER;
-		printf("CreateFile() <%d> filename : %s\n", GetLastError(), ScsiName);
-
 		goto fin;
 	}
 	else
 	{
-		printf("CreateFile() <-> filename : %s\n", ScsiName);
+		/* TODO: log */
 	}
 
 	// SCSI情報の領域を確保
@@ -936,8 +913,6 @@ GetDiskName(
 	if (adapterbusinfo == NULL)
 	{
 		dwReturn = DISK_ERROR_OTHER;
-		printf("GlobalAlloc(adapterbusinfo) <%d> size : %d\n", GetLastError(), nSize);
-
 		goto fin;
 	}
 
@@ -956,15 +931,12 @@ GetDiskName(
 		);
 		if (bRet)
 		{   // 成功ならループを抜ける
-			printf("DeviceIoControl(IOCTL_SCSI_GET_INQUIRY_DATA) <-> size : %d\n", nSize);
 			break;
 		}
 
 		dwStatus = GetLastError();
 		if (dwStatus == ERROR_INSUFFICIENT_BUFFER)
 		{
-			printf("DeviceIoControl(IOCTL_SCSI_GET_INQUIRY_DATA) <%d> size : %d\n", dwStatus, nSize);
-
 			// 領域の再確保
 			nSize *= 2;
 			GlobalFree(adapterbusinfo);
@@ -974,16 +946,12 @@ GetDiskName(
 			if (adapterbusinfo == NULL)
 			{
 				dwReturn = DISK_ERROR_OTHER;
-				printf("GlobalAlloc(adapterbusinfo) <%d> size : %d\n", GetLastError(), nSize);
-
 				goto fin;
 			}
 		}
 		else
 		{
 			dwReturn = DISK_ERROR_OTHER;
-			printf("DeviceIoControl(IOCTL_SCSI_GET_INQUIRY_DATA) <%d> size : %d\n", dwStatus, nSize);
-
 			goto fin;
 		}
 	}
@@ -993,7 +961,6 @@ GetDiskName(
 	{
 		if (adapterbusinfo->BusData[nCnt1].NumberOfLogicalUnits == 0)
 		{   // 物理ユニット数が0なら次のBUSへ
-			printf("number of logical unit is 0. busdata : %d\n", nCnt1);
 			continue;
 		}
 
@@ -1015,8 +982,6 @@ GetDiskName(
 				if (name == NULL)
 				{
 					dwReturn = DISK_ERROR_OTHER;
-					printf("GlobalAlloc(name) <%d> size : %d\n", GetLastError(), nSize);
-
 					goto fin;
 				}
 
@@ -1044,8 +1009,6 @@ GetDiskName(
 	if (name == NULL)
 	{
 		dwReturn = DISK_ERROR_OTHER;
-		printf("diskname is NULL.\n");
-
 		goto fin;
 	}
 
@@ -1108,13 +1071,11 @@ GetVolumeMountPoint(
 	if (nRet == 0)
 	{
 		dwReturn = DISK_ERROR_OTHER;
-		printf("GetVolumePathNamesForVolumeName() <%d> size : %d, volumename : %s\n", GetLastError(), dwDatalen, VolumeName);
-
 		goto fin;
 	}
 	else
 	{
-		printf("GetVolumePathNamesForVolumeName() <-> size : %d, volumename : %s\n", dwDatalen, VolumeName);
+		/* TODO: log */
 	}
 
 	// MountPointの取得
@@ -1145,8 +1106,6 @@ GetVolumeMountPoint(
 
 	}
 
-	printf("volume mount point : %s\n", MountPoint);
-
 fin:
 
 	return dwReturn;
@@ -1167,7 +1126,6 @@ IsRemovableVolume(
 	if (uType == DRIVE_REMOVABLE) {
 		bRet = TRUE;
 	}
-	printf("<%s> is <Type=%d>\n", mountpoint, uType);
 
 	return bRet;
 }
